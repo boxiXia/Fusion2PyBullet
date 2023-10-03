@@ -55,14 +55,11 @@ def run(context):
         try: os.mkdir(save_dir)
         except: pass
         
-        ## Set "Do not capture design history"
-        design.designType = adsk.fusion.DesignTypes.DirectDesignType
-        
         # --------------------
         # set dictionaries
         
         # Generate joints_dict. All joints are related to root. 
-        joints_dict, msg = Joint.make_joints_dict(root, msg)
+        joints_dict, msg = Joint.make_joints_dict(design, root, msg)
         if msg != success_msg:
             ui.messageBox(msg, title)
             return 0   
@@ -84,11 +81,10 @@ def run(context):
         Write.write_urdf(joints_dict, links_xyz_dict, inertial_dict, package_name, save_dir, robot_name)
         Write.write_hello_pybullet(robot_name, save_dir)
         
-        # Generate STl files        
-        utils.copy_occs(root)
-        utils.export_stl(design, save_dir, components)   
-        
-        ui.messageBox(msg, title)
+        # # Generate STl files        
+        utils.copy_occs_and_export(root,design, save_dir, components)   
+
+        # ui.messageBox(msg, title)
         
     except:
         if ui:

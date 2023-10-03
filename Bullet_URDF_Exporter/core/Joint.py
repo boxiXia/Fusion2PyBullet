@@ -11,7 +11,7 @@ from xml.etree.ElementTree import Element, SubElement
 from ..utils import utils
 
 class Joint:
-    def __init__(self, name, xyz, axis, parent, child, joint_type, upper_limit, lower_limit):
+    def __init__(self, name, xyz, axis, parent, child, joint_type, upper_limit, lower_limit,effort):
         """
         Attributes
         ----------
@@ -42,6 +42,7 @@ class Joint:
         self.axis = axis  # for 'revolute' and 'continuous'
         self.upper_limit = upper_limit  # for 'revolute' and 'prismatic'
         self.lower_limit = lower_limit  # for 'revolute' and 'prismatic'
+        self.effort = effort
         
     def make_joint_xml(self):
         """
@@ -62,7 +63,7 @@ class Joint:
         if self.type == 'revolute' or self.type == 'prismatic':
             limit = SubElement(joint, 'limit')
             limit.attrib = {'upper': str(self.upper_limit), 'lower': str(self.lower_limit),
-                            'effort': '100', 'velocity': '100'}
+                            'effort': str(self.effort), 'velocity': '20'}
             
         self.joint_xml = "\n".join(utils.prettify(joint).split("\n")[1:])
 
@@ -100,7 +101,7 @@ class Joint:
 
 ########## Nested-component support ########## 
 
-def make_joints_dict(root, msg):
+def make_joints_dict(design, root, msg):
     """
     joints_dict holds parent, axis and xyz informatino of the joints
     
@@ -124,9 +125,10 @@ def make_joints_dict(root, msg):
     
     ## Root joints
     for joint in root.joints:
-        joint_dict = get_joint_dict(joint)
+        joint_dict = get_joint_dict(design, joint)
         if type(joint_dict) is dict:
             key = utils.get_valid_filename(joint.name)
+            joint_dict['name'] = key
             joints_dict[key] = joint_dict
         else: ## Error happens and throw an msg
             msg = joint_dict
@@ -149,17 +151,15 @@ def traverseAssembly(occurrences, currentLevel, joints_dict={}, msg='Successfull
         if occ.component.joints.count > 0:
             for joint in occ.component.joints:
                 ass_joint = joint.createForAssemblyContext(occ)
-                joint_dict = get_joint_dict(ass_joint)
+                joint_dict = get_joint_dict(design, ass_joint)
                 if type(joint_dict) is dict:
                     key = utils.get_valid_filename(occ.fullPathName) + '_' + joint.name
                     joints_dict[key] = joint_dict
                 else: ## Error happens and throw an msg
                     msg = joint_dict
-                # tmp_joints_dict, msg = make_joints_dict(ass_joint, msg)
                 if msg != 'Successfully create URDF file':
                     print('Check Component: ' + comp.name + '\t Joint: ' + joint.name)
                     return 0
-
                 # print('Level {} {}: Joint {}.'.format(currentLevel, occ.name, ass_joint.name))
         else:
             pass
@@ -172,7 +172,7 @@ def traverseAssembly(occurrences, currentLevel, joints_dict={}, msg='Successfull
 
 
 
-def get_joint_dict(joint):
+def get_joint_dict(design, joint):
     joint_type_list = [
     'fixed', 'revolute', 'prismatic', 'Cylinderical',
     'PinSlot', 'Planner', 'Ball']  # these are the names in urdf
@@ -186,6 +186,13 @@ def get_joint_dict(joint):
     joint_dict['upper_limit'] = 0.0
     joint_dict['lower_limit'] = 0.0
     
+
+    try:
+        joint_dict['effort'] = design.userParameters.itemByName(f"{joint.name}_effort").value
+        print(f"{__file__}: {joint.name}: effort={joint_dict['effort']}")
+    except:
+        joint_dict['effort'] = 98.765 # default
+    
     # support  "Revolute", "Rigid" and "Slider"
     if joint_type == 'revolute':
         joint_dict['axis'] = [round(i, 6) for i in \
@@ -195,15 +202,10 @@ def get_joint_dict(joint):
         if max_enabled and min_enabled:  
             joint_dict['upper_limit'] = round(joint.jointMotion.rotationLimits.maximumValue, 6)
             joint_dict['lower_limit'] = round(joint.jointMotion.rotationLimits.minimumValue, 6)
-        elif max_enabled and not min_enabled:
-            msg = joint.name + 'is not set its lower limit. Please set it and try again.'
-            return msg
-        elif not max_enabled and min_enabled:
-            msg = joint.name + 'is not set its upper limit. Please set it and try again.'
-            return msg
-        else:  # if there is no angle limit
+        elif not max_enabled and not min_enabled:  # if there is no angle limit
             joint_dict['type'] = 'continuous'
-            
+        else:
+            raise Exception(f'{joint.name} is not set its upper or lower limit. Please set it and try again.')
     elif joint_type == 'prismatic':
         joint_dict['axis'] = [round(i, 6) for i in \
             joint.jointMotion.slideDirectionVector.asArray()]  # Also normalized
@@ -212,19 +214,16 @@ def get_joint_dict(joint):
         if max_enabled and min_enabled:  
             joint_dict['upper_limit'] = round(joint.jointMotion.slideLimits.maximumValue/100, 6)
             joint_dict['lower_limit'] = round(joint.jointMotion.slideLimits.minimumValue/100, 6)
-        elif max_enabled and not min_enabled:
-            msg = joint.name + 'is not set its lower limit. Please set it and try again.'
-            return msg
-        elif not max_enabled and min_enabled:
-            msg = joint.name + 'is not set its upper limit. Please set it and try again.'
-            return msg
+        else:
+            raise Exception(f'{joint.name} is not set its upper or lower limit. Please set it and try again.')
     elif joint_type == 'fixed':
         pass
     
-    if joint.occurrenceTwo.component.name == 'base_link':
-        joint_dict['parent'] = 'base_link'
-    else:  
-        joint_dict['parent'] = utils.get_valid_filename(joint.occurrenceTwo.fullPathName)
+    # if joint.occurrenceTwo.component.name == 'base_link':
+    #     joint_dict['parent'] = 'base_link'
+    # else:  
+    #     joint_dict['parent'] = utils.get_valid_filename(joint.occurrenceTwo.fullPathName)
+    joint_dict['parent'] = utils.get_valid_filename(joint.occurrenceTwo.fullPathName)
     joint_dict['child'] = utils.get_valid_filename(joint.occurrenceOne.fullPathName)
 
     ############### Auxiliary Function for the geometryOrOriginTwo issue
