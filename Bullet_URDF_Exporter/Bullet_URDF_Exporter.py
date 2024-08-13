@@ -76,6 +76,8 @@ def run(context):
         
         links_xyz_dict = {}
         
+        joints_dict = {key: joints_dict[key] for key in sorted(joints_dict.keys())}
+        inertial_dict =  {key: inertial_dict[key] for key in sorted(inertial_dict.keys())}
         # --------------------
         # Generate URDF
         Write.write_urdf(joints_dict, links_xyz_dict, inertial_dict, package_name, save_dir, robot_name)
